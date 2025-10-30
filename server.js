@@ -10,67 +10,80 @@ const wss = new WebSocket.Server({ server });
 // Serve static files from the 'public' directory
 app.use(express.static(path.join(__dirname, 'public')));
 
-let clients = []; // Store connected clients
 let game = {
-    state: 'WAITING', // WAITING, IN_PROGRESS, FINISHED
-    players: [], // { ws, id, name, totalPayoff, signal }
-    playerCount: 0,
+    state: 'WAITING', // WAITING, IN_PROGRESS, ROUND_OVER, RESALE, FINISHED
+    players: [], // { ws, id, name, isHost, totalPayoff, signal, currentBid }
+    hostWs: null,
     totalRounds: 0,
     currentRound: 0,
     trueValue_V: 0,
     roundBids: [],
     roundWinnerInfo: null,
-    log: []
+    log: [],
+    readyForNextRound: new Set()
 };
 
-function broadcast(data) {
-    wss.clients.forEach(client => {
+function broadcast(data, clients = wss.clients) {
+    const jsonData = JSON.stringify(data);
+    clients.forEach(client => {
         if (client.readyState === WebSocket.OPEN) {
-            client.send(JSON.stringify(data));
+            client.send(jsonData);
         }
     });
 }
 
 function logAndBroadcast(message) {
-    console.log(message);
-    game.log.push(message);
-    broadcast({ type: 'log', message });
+    const logMessage = `[Round ${game.currentRound}] ${message}`;
+    console.log(logMessage);
+    game.log.push(logMessage);
+    broadcast({ type: 'log', message: logMessage });
+}
+
+function getSanitizedPlayers() {
+    return game.players.map(({ ws, signal, ...rest }) => rest);
 }
 
 wss.on('connection', ws => {
-    const clientId = clients.length + 1;
-    ws.clientId = clientId;
-    clients.push(ws);
-    console.log(`Client ${clientId} connected`);
-
-    // Send current game state to the new client
-    ws.send(JSON.stringify({ type: 'gameState', game }));
+    console.log('Client connected');
 
     ws.on('message', message => {
-        const data = JSON.parse(message);
-        console.log(`Received message from client ${ws.clientId}:`, data);
-
-        switch (data.type) {
-            case 'joinGame':
-                handleJoinGame(ws, data.name);
-                break;
-            // More cases will be added here for other game actions
+        try {
+            const data = JSON.parse(message);
+            console.log('Received:', data);
+            handleMessage(ws, data);
+        } catch (error) {
+            console.error('Failed to parse message or handle it:', error);
         }
     });
 
     ws.on('close', () => {
-        console.log(`Client ${ws.clientId} disconnected`);
-        clients = clients.filter(client => client !== ws);
-        // Handle player disconnection during a game
-        const playerIndex = game.players.findIndex(p => p.ws === ws);
-        if (playerIndex > -1) {
-            const disconnectedPlayer = game.players[playerIndex];
-            game.players.splice(playerIndex, 1);
-            logAndBroadcast(`${disconnectedPlayer.name} has left the game.`);
-            broadcast({ type: 'playerUpdate', players: game.players });
-        }
+        console.log('Client disconnected');
+        handleDisconnect(ws);
     });
+
+    // Send current game state to the new client
+    ws.send(JSON.stringify({ type: 'gameState', game: { ...game, players: getSanitizedPlayers() } }));
 });
+
+function handleMessage(ws, data) {
+    const player = game.players.find(p => p.ws === ws);
+
+    switch (data.type) {
+        case 'joinGame':
+            handleJoinGame(ws, data.name);
+            break;
+        case 'startGame':
+            if (player && player.isHost) handleStartGame();
+            break;
+        case 'submitBid':
+            if (player) handleSubmitBid(player, data.bid);
+            break;
+        case 'requestNextRound':
+            if (player) handleRequestNextRound(player);
+            break;
+        // Resale logic would be added here
+    }
+}
 
 function handleJoinGame(ws, name) {
     if (game.state !== 'WAITING') {
@@ -81,21 +94,188 @@ function handleJoinGame(ws, name) {
         ws.send(JSON.stringify({ type: 'error', message: 'You have already joined.' }));
         return;
     }
+    if (game.players.length >= 12) {
+        ws.send(JSON.stringify({ type: 'error', message: 'The game is full.' }));
+        return;
+    }
 
-    const player = {
-        ws: ws,
+    const isHost = game.players.length === 0;
+    const newPlayer = {
+        ws,
         id: game.players.length + 1,
         name: name || `Player ${game.players.length + 1}`,
+        isHost,
         totalPayoff: 0,
-        signal: 0
+        signal: 0,
+        currentBid: null
     };
-    game.players.push(player);
-    ws.playerId = player.id;
+    game.players.push(newPlayer);
+    if (isHost) game.hostWs = ws;
 
-    logAndBroadcast(`${player.name} has joined the game.`);
-    broadcast({ type: 'playerUpdate', players: game.players });
+    ws.send(JSON.stringify({ type: 'assignPlayer', player: { id: newPlayer.id, name: newPlayer.name, isHost: newPlayer.isHost } }));
+    
+    logAndBroadcast(`${newPlayer.name} has joined the lobby.`);
+    broadcast({ type: 'playerUpdate', players: getSanitizedPlayers() });
 }
 
+function handleStartGame() {
+    if (game.state !== 'WAITING' || game.players.length < 2 || game.players.length > 12) {
+        logAndBroadcast('Cannot start game. Need 2-12 players.');
+        return;
+    }
+
+    game.state = 'IN_PROGRESS';
+    game.totalRounds = game.players.length;
+    game.currentRound = 0;
+    
+    logAndBroadcast(`Game starting with ${game.players.length} players!`);
+    broadcast({ type: 'gameStart', game: { ...game, players: getSanitizedPlayers() } });
+
+    setTimeout(startNextRound, 1000);
+}
+
+function startNextRound() {
+    game.currentRound++;
+    if (game.currentRound > game.totalRounds) {
+        endGame();
+        return;
+    }
+
+    game.state = 'IN_PROGRESS';
+    game.trueValue_V = Math.random() * 100 + 50; // Uniform[50, 150]
+    game.roundBids = [];
+    game.readyForNextRound.clear();
+    
+    logAndBroadcast(`Starting Round ${game.currentRound} of ${game.totalRounds}.`);
+
+    game.players.forEach(p => {
+        const error = Math.random() * 40 - 20; // Uniform[-20, 20]
+        p.signal = game.trueValue_V + error;
+        p.currentBid = null;
+        
+        const payload = {
+            type: 'newRound',
+            game: {
+                ...game,
+                players: getSanitizedPlayers()
+            },
+            privateSignal: p.signal
+        };
+        p.ws.send(JSON.stringify(payload));
+    });
+}
+
+function handleSubmitBid(player, bid) {
+    if (game.state !== 'IN_PROGRESS' || player.currentBid !== null) {
+        return; // Ignore late or duplicate bids
+    }
+    player.currentBid = bid;
+    game.roundBids.push({ playerId: player.id, bid });
+    
+    logAndBroadcast(`${player.name} has submitted their bid.`);
+
+    if (game.roundBids.length === game.players.length) {
+        processBids();
+    }
+}
+
+function processBids() {
+    game.state = 'ROUND_OVER';
+    game.roundBids.sort((a, b) => b.bid - a.bid);
+
+    const highestBid = game.roundBids[0].bid;
+    const secondHighestBid = game.roundBids.length > 1 ? game.roundBids[1].bid : 0;
+    const topBidders = game.roundBids.filter(b => b.bid === highestBid);
+
+    let winner;
+    if (topBidders.length > 1) {
+        const winnerIndex = Math.floor(Math.random() * topBidders.length);
+        const winnerId = topBidders[winnerIndex].playerId;
+        winner = game.players.find(p => p.id === winnerId);
+    } else {
+        const winnerId = topBidders[0].playerId;
+        winner = game.players.find(p => p.id === winnerId);
+    }
+    
+    const payment = secondHighestBid;
+    const winnerPayoff = game.trueValue_V - payment;
+    winner.totalPayoff += winnerPayoff;
+    
+    game.roundWinnerInfo = { winner, payment, winnerPayoff };
+
+    let resultMessage = `All bids are in. Highest bid: ${highestBid.toFixed(2)}, Second highest: ${secondHighestBid.toFixed(2)}.<br>`;
+    if (topBidders.length > 1) {
+        resultMessage += `Tie for highest bid! Randomly selected winner.<br>`;
+    }
+    resultMessage += `<strong>${winner.name} wins the round!</strong> They pay ${payment.toFixed(2)}.<br>`;
+    resultMessage += `Winner's payoff for this round: ${game.trueValue_V.toFixed(2)} (V) - ${payment.toFixed(2)} (p) = ${winnerPayoff.toFixed(2)}.`;
+    
+    logAndBroadcast(`Round ${game.currentRound} ended. Winner: ${winner.name}.`);
+
+    broadcast({
+        type: 'roundResult',
+        result: {
+            message: resultMessage,
+            updatedPayoffs: getSanitizedPlayers().map(p => ({ name: p.name, totalPayoff: p.totalPayoff }))
+        }
+    });
+    
+    // For now, we skip resale and go to next round button
+    setTimeout(() => {
+        broadcast({ type: 'showNextRoundButton' });
+    }, 1000);
+}
+
+function handleRequestNextRound(player) {
+    if (game.state !== 'ROUND_OVER' || game.readyForNextRound.has(player.id)) {
+        return;
+    }
+    game.readyForNextRound.add(player.id);
+    logAndBroadcast(`${player.name} is ready for the next round.`);
+
+    if (game.readyForNextRound.size === game.players.length) {
+        logAndBroadcast('All players are ready. Starting next round...');
+        setTimeout(startNextRound, 1000);
+    }
+}
+
+function endGame() {
+    game.state = 'FINISHED';
+    logAndBroadcast('The game has ended! Calculating final scores...');
+    
+    const finalGameState = {
+        ...game,
+        players: getSanitizedPlayers().sort((a, b) => b.totalPayoff - a.totalPayoff)
+    };
+
+    broadcast({ type: 'gameOver', game: finalGameState });
+}
+
+function handleDisconnect(ws) {
+    const playerIndex = game.players.findIndex(p => p.ws === ws);
+    if (playerIndex === -1) return;
+
+    const disconnectedPlayer = game.players[playerIndex];
+    game.players.splice(playerIndex, 1);
+
+    logAndBroadcast(`${disconnectedPlayer.name} has disconnected.`);
+    
+    if (game.state === 'WAITING') {
+        if (disconnectedPlayer.isHost && game.players.length > 0) {
+            game.players[0].isHost = true;
+            game.hostWs = game.players[0].ws;
+            logAndBroadcast(`${game.players[0].name} is the new host.`);
+        }
+        broadcast({ type: 'playerUpdate', players: getSanitizedPlayers() });
+    } else {
+        // In-game disconnect, could end game or continue, for now we just announce
+        // A more robust solution would handle this more gracefully
+        if (game.players.length < 2) {
+            logAndBroadcast('Not enough players to continue. The game has ended.');
+            endGame();
+        }
+    }
+}
 
 const PORT = process.env.PORT || 3000;
 server.listen(PORT, () => {
