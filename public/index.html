@@ -10,9 +10,18 @@
     <div class="container">
         <h1>拍卖博弈</h1>
         <div id="setup-section">
-            <label for="player-count">请输入参与者人数 (2-10):</label>
-            <input type="number" id="player-count" min="2" max="10" value="3">
-            <button id="start-game-btn">开始游戏</button>
+            <h2>游戏设置</h2>
+            <div id="join-form">
+                <label for="player-name">你的名字:</label>
+                <input type="text" id="player-name" placeholder="输入你的名字">
+                <button id="join-game-btn">加入游戏</button>
+            </div>
+            <div id="lobby" class="hidden">
+                <h3>游戏大厅</h3>
+                <p>等待其他玩家加入... (需要 2-12 名玩家)</p>
+                <ul id="player-list"></ul>
+                <button id="start-game-btn" disabled>开始游戏 (仅限房主)</button>
+            </div>
         </div>
 
         <div id="game-section" class="hidden">
