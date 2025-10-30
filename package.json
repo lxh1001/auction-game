@@ -1,16 +1,1 @@
-{
-  "name": "auction-game",
-  "version": "1.0.0",
-  "description": "A web-based auction game based on common value model.",
-  "main": "server.js",
-  "scripts": {
-    "start": "node server.js",
-    "test": "echo \"Error: no test specified\" && exit 1"
-  },
-  "dependencies": {
-    "express": "^4.18.2",
-    "socket.io": "^4.7.2"
-  },
-  "author": "llm",
-  "license": "sufe"
-}
+
