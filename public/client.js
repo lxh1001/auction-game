@@ -1,287 +1,298 @@
 document.addEventListener('DOMContentLoaded', () => {
-    const socket = io();
-
-    // Screen elements
-    const screens = {
-        entry: document.getElementById('entry-screen'),
-        waiting: document.getElementById('waiting-room'),
-        game: document.getElementById('game-screen'),
-        result: document.getElementById('result-screen'),
-        final: document.getElementById('final-screen'),
-    };
-
-    // Input elements
-    const nicknameInput = document.getElementById('nickname-input');
-    const createRoomBtn = document.getElementById('create-room-btn');
-    const joinRoomBtn = document.getElementById('join-room-btn');
-    const roomIdInput = document.getElementById('room-id-input');
-    const maxPlayersInput = document.getElementById('max-players-input');
-    const roundTimeInput = document.getElementById('round-time-input');
+    // DOM Elements
+    const setupSection = document.getElementById('setup-section');
+    const gameSection = document.getElementById('game-section');
+    const playerCountInput = document.getElementById('player-count');
     const startGameBtn = document.getElementById('start-game-btn');
-    const bidInput = document.getElementById('bid-input');
-    const submitBidBtn = document.getElementById('submit-bid-btn');
     
-    // Display elements
-    const roomIdDisplay = document.getElementById('room-id-display');
-    const roundDisplay = document.getElementById('round-display');
-    const playerList = document.getElementById('player-list');
-    const hostNicknameDisplay = document.getElementById('host-nickname');
-    const currentPlayersDisplay = document.getElementById('current-players');
-    const maxPlayersDisplay = document.getElementById('max-players-display');
-    const privateSignalDisplay = document.getElementById('private-signal');
-    const myScoreDisplay = document.getElementById('my-score');
-    const timerDisplay = document.getElementById('timer');
-    const gamePlayerList = document.getElementById('game-player-list');
-    const bidStatus = document.getElementById('bid-status');
-    const resultTitle = document.getElementById('result-title');
-    const resultDetails = document.getElementById('result-details');
-    const nextRoundTimerDisplay = document.getElementById('next-round-timer');
-    const finalRanking = document.getElementById('final-ranking');
-    const gameHistoryContainer = document.getElementById('game-history-table-container');
+    const gameInfo = document.getElementById('game-info');
+    const trueValueSpan = document.getElementById('true-value');
+    const currentRoundSpan = document.getElementById('current-round');
+    const totalRoundsSpan = document.getElementById('total-rounds');
+    
+    const playersSection = document.getElementById('players-section');
+    const submitBidsBtn = document.getElementById('submit-bids-btn');
+    
+    const roundResultSection = document.getElementById('round-result');
+    const resultText = document.getElementById('result-text');
+    const nextRoundBtn = document.getElementById('next-round-btn');
 
-    let myNickname = '';
-    let myRoomId = '';
-    let myPlayerId = '';
-    let roundTimerInterval;
-    let nextRoundTimerInterval;
+    const resaleSection = document.getElementById('resale-section');
+    const resaleWinnerName = document.querySelector('.resale-winner-name');
+    const resaleYesBtn = document.getElementById('resale-yes-btn');
+    const resaleNoBtn = document.getElementById('resale-no-btn');
+    
+    const resaleBiddingSection = document.getElementById('resale-bidding-section');
+    const resalePlayersSection = document.getElementById('resale-players-section');
+    const submitResaleBidsBtn = document.getElementById('submit-resale-bids-btn');
+    const resaleResultSection = document.getElementById('resale-result');
+    const resaleResultText = document.getElementById('resale-result-text');
 
-    function showScreen(screenName) {
-        Object.values(screens).forEach(s => s.classList.add('hidden'));
-        if (screens[screenName]) {
-            screens[screenName].classList.remove('hidden');
-        }
-        document.getElementById('room-info').classList.toggle('hidden', screenName === 'entry');
-    }
+    const finalResultSection = document.getElementById('final-result');
+    const finalSummary = document.getElementById('final-summary');
+    const gameLog = document.getElementById('game-log');
 
-    function updatePlayerList(players, hostId) {
-        playerList.innerHTML = '';
-        gamePlayerList.innerHTML = '';
-        players.forEach(p => {
-            const isHost = p.id === hostId;
-            const hostTag = isHost ? ' (房主)' : '';
-            if (isHost) hostNicknameDisplay.textContent = p.nickname;
-            
-            const li = document.createElement('li');
-            li.textContent = `${p.nickname}${hostTag}`;
-            playerList.appendChild(li);
-
-            const gameLi = document.createElement('li');
-            gameLi.dataset.playerId = p.id;
-            gameLi.innerHTML = `<span>${p.nickname} (分数: ${p.score.toFixed(2)})</span><span class="status">等待出价...</span>`;
-            gamePlayerList.appendChild(gameLi);
-        });
-        currentPlayersDisplay.textContent = players.length;
-    }
+    // Game State
+    let playerCount = 0;
+    let totalRounds = 0;
+    let currentRound = 0;
+    let players = [];
+    let trueValue_V = 0;
+    let roundBids = [];
+    let roundWinnerInfo = null;
 
     // Event Listeners
-    createRoomBtn.addEventListener('click', () => {
-        myNickname = nicknameInput.value.trim();
-        if (!myNickname) {
-            alert('请输入昵称!');
+    startGameBtn.addEventListener('click', startGame);
+    submitBidsBtn.addEventListener('click', submitBids);
+    nextRoundBtn.addEventListener('click', startNextRound);
+    resaleYesBtn.addEventListener('click', handleResaleYes);
+    resaleNoBtn.addEventListener('click', handleResaleNo);
+    submitResaleBidsBtn.addEventListener('click', submitResaleBids);
+
+    function log(message) {
+        const p = document.createElement('p');
+        p.innerHTML = `[轮次 ${currentRound}] ${message}`;
+        gameLog.appendChild(p);
+        gameLog.scrollTop = gameLog.scrollHeight;
+    }
+
+    function startGame() {
+        playerCount = parseInt(playerCountInput.value);
+        if (playerCount < 2 || playerCount > 10) {
+            alert('参与者人数必须在 2 到 10 之间。');
             return;
         }
-        const maxPlayers = maxPlayersInput.value;
-        const roundTime = roundTimeInput.value;
-        socket.emit('createRoom', { nickname: myNickname, maxPlayers, roundTime });
-    });
+        totalRounds = playerCount;
+        currentRound = 0;
+        
+        players = [];
+        for (let i = 1; i <= playerCount; i++) {
+            players.push({ id: i, name: `参与者 ${i}`, totalPayoff: 0, signal: 0 });
+        }
 
-    joinRoomBtn.addEventListener('click', () => {
-        myNickname = nicknameInput.value.trim();
-        const roomId = roomIdInput.value.trim().toUpperCase();
-        if (!myNickname || !roomId) {
-            alert('请输入昵称和房间号!');
+        setupSection.classList.add('hidden');
+        gameSection.classList.remove('hidden');
+        finalResultSection.classList.add('hidden');
+        gameLog.innerHTML = '';
+
+        startNextRound();
+    }
+
+    function startNextRound() {
+        currentRound++;
+        if (currentRound > totalRounds) {
+            endGame();
             return;
         }
-        socket.emit('joinRoom', { roomId, nickname: myNickname });
-    });
-    
-    startGameBtn.addEventListener('click', () => {
-        socket.emit('startGame', myRoomId);
-    });
 
-    submitBidBtn.addEventListener('click', () => {
-        const bid = bidInput.value;
-        if (bid === '' || parseFloat(bid) < 0 || parseFloat(bid) > 190) {
-            alert('请输入一个在 0 到 190 之间的有效出价。');
-            return;
-        }
-        socket.emit('submitBid', { roomId: myRoomId, bid });
-        bidInput.disabled = true;
-        submitBidBtn.disabled = true;
-        bidStatus.textContent = `你已出价: ${bid}`;
-    });
-
-    // Socket.IO Handlers
-    socket.on('connect', () => {
-        myPlayerId = socket.id;
-    });
-
-    socket.on('roomCreated', ({ roomId, players }) => {
-        myRoomId = roomId;
-        roomIdDisplay.textContent = roomId;
-        maxPlayersDisplay.textContent = maxPlayersInput.value;
-        showScreen('waiting');
-        updatePlayerList(players, myPlayerId);
-        startGameBtn.classList.remove('hidden');
-    });
-
-    socket.on('joinedRoom', ({ roomId, players, hostId }) => {
-        myRoomId = roomId;
-        roomIdDisplay.textContent = roomId;
-        const host = players.find(p => p.id === hostId);
-        maxPlayersDisplay.textContent = host ? '?' : players.length; // Placeholder until settings are broadcast
-        showScreen('waiting');
-        updatePlayerList(players, hostId);
-    });
-    
-    socket.on('playerUpdate', (players) => {
-        const hostId = document.getElementById('start-game-btn').classList.contains('hidden') ? null : myPlayerId;
-        updatePlayerList(players, hostId || players.find(p=>p.nickname === hostNicknameDisplay.textContent)?.id);
-    });
-
-    socket.on('hostUpdate', (hostId) => {
-        const host = playerList.querySelector(`li[data-player-id="${hostId}"]`);
-        if(host) hostNicknameDisplay.textContent = host.textContent.replace(' (房主)', '');
-        if (hostId === myPlayerId) {
-            startGameBtn.classList.remove('hidden');
-        } else {
-            startGameBtn.classList.add('hidden');
-        }
-    });
-
-    socket.on('error', (message) => {
-        alert(`错误: ${message}`);
-    });
-    
-    socket.on('gameStarted', ({ totalRounds }) => {
-        maxPlayersDisplay.textContent = totalRounds;
-    });
-
-    socket.on('newRound', ({ round, totalRounds, roundTime }) => {
-        showScreen('game');
-        roundDisplay.textContent = `${round} / ${totalRounds}`;
-        bidInput.value = '';
-        bidInput.disabled = false;
-        submitBidBtn.disabled = false;
-        bidStatus.textContent = '';
-        privateSignalDisplay.textContent = '-';
-
-        gamePlayerList.querySelectorAll('.status').forEach(s => {
-            s.textContent = '等待出价...';
-            s.classList.remove('bid-submitted');
+        // Generate new true value and signals
+        trueValue_V = Math.random() * 100 + 50; // Uniform[50, 150]
+        players.forEach(p => {
+            const error = Math.random() * 40 - 20; // Uniform[-20, 20]
+            p.signal = trueValue_V + error;
         });
 
-        clearInterval(roundTimerInterval);
-        let timeLeft = roundTime;
-        timerDisplay.textContent = timeLeft;
-        roundTimerInterval = setInterval(() => {
-            timeLeft--;
-            timerDisplay.textContent = timeLeft;
-            if (timeLeft <= 0) {
-                clearInterval(roundTimerInterval);
-            }
-        }, 1000);
-    });
+        updateUIForNewRound();
+        log(`新一轮开始。`);
+    }
 
-    socket.on('privateSignal', ({ signal }) => {
-        privateSignalDisplay.textContent = signal.toFixed(2);
-    });
+    function updateUIForNewRound() {
+        currentRoundSpan.textContent = currentRound;
+        totalRoundsSpan.textContent = totalRounds;
+        trueValueSpan.textContent = '?';
 
-    socket.on('playerBid', (playerId) => {
-        const playerLi = gamePlayerList.querySelector(`li[data-player-id="${playerId}"] .status`);
-        if (playerLi) {
-            playerLi.textContent = '已出价';
-            playerLi.classList.add('bid-submitted');
-        }
-    });
-
-    socket.on('roundResult', (result) => {
-        clearInterval(roundTimerInterval);
-        showScreen('result');
-        
-        const { V, bids, winnerInfo, players } = result;
-        const winner = players.find(p => p.id === winnerInfo.winner?.playerId);
-
-        resultTitle.textContent = `第 ${roundDisplay.textContent.split(' / ')[0]} 轮结果`;
-
-        let detailsHtml = `<p><strong>真实价值 (V):</strong> ${V.toFixed(2)}</p>`;
-        if (winner) {
-            detailsHtml += `
-                <p><strong>获胜者:</strong> ${winner.nickname}</p>
-                <p><strong>支付价格 (第二高价 b(2)):</strong> ${winnerInfo.payment.toFixed(2)}</p>
-                <p><strong>获胜者本轮收益 (V - b(2)):</strong> ${winnerInfo.payoff.toFixed(2)}</p>
+        playersSection.innerHTML = '';
+        players.forEach(p => {
+            const card = document.createElement('div');
+            card.className = 'player-card';
+            card.innerHTML = `
+                <h3>${p.name}</h3>
+                <p><strong>总收益:</strong> ${p.totalPayoff.toFixed(2)}</p>
+                <p><strong>本轮私有信号 (s<sub>${p.id}</sub>):</strong> ${p.signal.toFixed(2)}</p>
+                <input type="number" id="bid-player-${p.id}" class="bid-input" placeholder="输入你的出价 (0-190)" min="0" max="190">
             `;
+            playersSection.appendChild(card);
+        });
+
+        submitBidsBtn.classList.remove('hidden');
+        submitBidsBtn.disabled = false;
+        roundResultSection.classList.add('hidden');
+        resaleSection.classList.add('hidden');
+        resaleBiddingSection.classList.add('hidden');
+        resaleResultSection.classList.add('hidden');
+        nextRoundBtn.classList.add('hidden');
+    }
+
+    function submitBids() {
+        roundBids = [];
+        let allBidsValid = true;
+        for (let i = 1; i <= playerCount; i++) {
+            const bidInput = document.getElementById(`bid-player-${i}`);
+            const bidValue = parseFloat(bidInput.value);
+            if (isNaN(bidValue) || bidValue < 0 || bidValue > 190) {
+                alert(`参与者 ${i} 的出价无效。请输入 0 到 190 之间的数字。`);
+                allBidsValid = false;
+                break;
+            }
+            roundBids.push({ playerId: i, bid: bidValue });
+        }
+
+        if (allBidsValid) {
+            submitBidsBtn.disabled = true;
+            processBids();
+        }
+    }
+
+    function processBids() {
+        roundBids.sort((a, b) => b.bid - a.bid);
+
+        const highestBid = roundBids[0].bid;
+        const secondHighestBid = roundBids[1].bid;
+        const topBidders = roundBids.filter(b => b.bid === highestBid);
+
+        let winner;
+        if (topBidders.length > 1) {
+            // Tie for the highest bid
+            const winnerIndex = Math.floor(Math.random() * topBidders.length);
+            winner = players.find(p => p.id === topBidders[winnerIndex].playerId);
         } else {
-            detailsHtml += `<p>无人获胜。</p>`;
+            // Clear winner
+            winner = players.find(p => p.id === topBidders[0].playerId);
         }
         
-        detailsHtml += '<h4>所有出价:</h4><table><tr><th>玩家</th><th>出价</th></tr>';
-        bids.forEach(bid => {
-            const player = players.find(p => p.id === bid.playerId);
-            detailsHtml += `<tr><td>${player.nickname}</td><td>${bid.bid.toFixed(2)}</td></tr>`;
-        });
-        detailsHtml += '</table>';
+        const payment = secondHighestBid;
+        const winnerPayoff = trueValue_V - payment;
+        winner.totalPayoff += winnerPayoff;
         
-        resultDetails.innerHTML = detailsHtml;
+        roundWinnerInfo = { winner, payment, winnerPayoff };
 
-        // Update my score display
-        const me = players.find(p => p.id === myPlayerId);
-        if (me) myScoreDisplay.textContent = me.score.toFixed(2);
+        let resultMessage = `本轮最高出价为 ${highestBid.toFixed(2)}，第二高出价为 ${secondHighestBid.toFixed(2)}。<br>`;
+        if (topBidders.length > 1) {
+            resultMessage += `出现并列最高出价，随机选择获胜者。<br>`;
+        }
+        resultMessage += `<strong>获胜者是 ${winner.name}</strong>，支付价格 ${payment.toFixed(2)}。<br>`;
+        resultMessage += `获胜者本轮收益: ${trueValue_V.toFixed(2)} (V) - ${payment.toFixed(2)} (b(2)) = ${winnerPayoff.toFixed(2)}。`;
+        
+        log(`出价结束。获胜者: ${winner.name}, 支付: ${payment.toFixed(2)}, 收益: ${winnerPayoff.toFixed(2)}.`);
 
-        // Countdown for next round
-        clearInterval(nextRoundTimerInterval);
-        let nextRoundTime = 15;
-        nextRoundTimerDisplay.textContent = nextRoundTime;
-        nextRoundTimerInterval = setInterval(() => {
-            nextRoundTime--;
-            nextRoundTimerDisplay.textContent = nextRoundTime;
-            if (nextRoundTime <= 0) {
-                clearInterval(nextRoundTimerInterval);
+        resultText.innerHTML = resultMessage;
+        roundResultSection.classList.remove('hidden');
+        resaleWinnerName.textContent = winner.name;
+        resaleSection.classList.remove('hidden');
+        submitBidsBtn.classList.add('hidden');
+    }
+
+    function handleResaleYes() {
+        log(`${roundWinnerInfo.winner.name} 选择进行转售。`);
+        resaleSection.classList.add('hidden');
+        resaleBiddingSection.classList.remove('hidden');
+        
+        resalePlayersSection.innerHTML = '';
+        const resaleBidders = players.filter(p => p.id !== roundWinnerInfo.winner.id);
+        resaleBidders.forEach(p => {
+            const card = document.createElement('div');
+            card.className = 'player-card';
+            card.innerHTML = `
+                <h3>${p.name}</h3>
+                <p><strong>总收益:</strong> ${p.totalPayoff.toFixed(2)}</p>
+                <input type="number" id="resale-bid-player-${p.id}" class="resale-bid-input" placeholder="输入转售出价" min="0">
+            `;
+            resalePlayersSection.appendChild(card);
+        });
+    }
+
+    function handleResaleNo() {
+        log(`${roundWinnerInfo.winner.name} 选择不进行转售。`);
+        resaleSection.classList.add('hidden');
+        showNextRoundButton();
+    }
+
+    function submitResaleBids() {
+        const resaleBidders = players.filter(p => p.id !== roundWinnerInfo.winner.id);
+        let resaleBids = [];
+        let allBidsValid = true;
+
+        resaleBidders.forEach(p => {
+            const bidInput = document.getElementById(`resale-bid-player-${p.id}`);
+            const bidValue = parseFloat(bidInput.value);
+            if (isNaN(bidValue) || bidValue < 0) {
+                alert(`${p.name} 的出价无效。`);
+                allBidsValid = false;
             }
-        }, 1000);
-    });
-
-    socket.on('gameEnded', (results) => {
-        clearInterval(nextRoundTimerInterval);
-        showScreen('final');
-
-        finalRanking.innerHTML = '';
-        results.players.forEach(p => {
-            const li = document.createElement('li');
-            li.textContent = `${p.nickname}: ${p.score.toFixed(2)}`;
-            finalRanking.appendChild(li);
+            resaleBids.push({ playerId: p.id, bid: bidValue });
         });
 
-        let historyTable = '<table><thead><tr><th>轮次</th><th>真实价值 (V)</th>';
-        const playerNicknames = results.players.map(p => p.nickname);
-        playerNicknames.forEach(nick => historyTable += `<th>${nick} (出价)</th><th>${nick} (信号)</th>`);
-        historyTable += '<th>获胜者</th><th>支付价格</th></tr></thead><tbody>';
+        if (!allBidsValid) return;
 
-        Object.keys(results.history).forEach(roundNum => {
-            const round = results.history[roundNum];
-            const winner = results.players.find(p => p.id === Object.values(round.bids).sort((a,b)=>b-a)[0]?.playerId);
-            const winnerBidInfo = round.bids.find(b => b.playerId === winner?.id);
-            const winnerNickname = winner ? winner.nickname : "N/A";
+        resaleBids.sort((a, b) => b.bid - a.bid);
 
-            let payment = "N/A";
-            if(round.bids.length > 1) {
-                payment = round.bids.sort((a,b) => b.bid - a.bid)[1].bid.toFixed(2);
-            } else if (round.bids.length === 1) {
-                 payment = round.bids[0].bid.toFixed(2);
-            }
+        let resaleResultMessage = '';
+        if (resaleBids.length < 2 || resaleBids[0].bid <= 0) {
+            resaleResultMessage = '转售失败，没有有效的出价。原获胜者保留物品。';
+            log('转售失败，没有有效出价。');
+        } else {
+            const resaleHighestBid = resaleBids[0].bid;
+            const resaleSecondHighestBid = resaleBids.length > 1 ? resaleBids[1].bid : 0;
+            const resaleWinnerId = resaleBids[0].playerId;
+            const resaleWinner = players.find(p => p.id === resaleWinnerId);
+            const payment = resaleSecondHighestBid;
+
+            // Original winner becomes seller
+            const seller = roundWinnerInfo.winner;
+            seller.totalPayoff -= roundWinnerInfo.winnerPayoff; // Reverse original payoff
+            seller.totalPayoff += (payment - roundWinnerInfo.payment); // Seller's new payoff
+
+            // New winner's payoff
+            const newWinnerPayoff = trueValue_V - payment;
+            resaleWinner.totalPayoff += newWinnerPayoff;
+
+            resaleResultMessage = `转售成功！<br>
+                新获胜者是 <strong>${resaleWinner.name}</strong>，支付价格 ${payment.toFixed(2)}。<br>
+                新获胜者收益: ${trueValue_V.toFixed(2)} (V) - ${payment.toFixed(2)} = ${newWinnerPayoff.toFixed(2)}。<br>
+                原获胜者 (${seller.name}) 作为卖家，获得 ${payment.toFixed(2)}，其本轮最终收益为 ${payment.toFixed(2)} - ${roundWinnerInfo.payment.toFixed(2)} = ${(payment - roundWinnerInfo.payment).toFixed(2)}。`;
             
-            historyTable += `<tr><td>${roundNum}</td><td>${round.V.toFixed(2)}</td>`;
-            results.players.forEach(p => {
-                 const bidInfo = round.bids.find(b => b.playerId === p.id);
-                 const bidValue = bidInfo ? bidInfo.bid.toFixed(2) : '0.00';
-                 const signalValue = round.signals[p.id] ? round.signals[p.id].toFixed(2) : 'N/A';
-                 historyTable += `<td>${bidValue}</td><td>${signalValue}</td>`;
-            });
-            historyTable += `<td>${winnerNickname}</td><td>${payment}</td></tr>`;
-        });
-        historyTable += '</tbody></table>';
-        gameHistoryContainer.innerHTML = historyTable;
-    });
+            log(`转售成功。新获胜者: ${resaleWinner.name}, 支付: ${payment.toFixed(2)}。卖家(${seller.name})收益: ${(payment - roundWinnerInfo.payment).toFixed(2)}.`);
+        }
 
-    showScreen('entry');
+        resaleResultText.innerHTML = resaleResultMessage;
+        resaleBiddingSection.classList.add('hidden');
+        resaleResultSection.classList.remove('hidden');
+        showNextRoundButton();
+    }
+
+    function showNextRoundButton() {
+        updatePlayerDisplays();
+        if (currentRound < totalRounds) {
+            nextRoundBtn.textContent = '进入下一轮';
+        } else {
+            nextRoundBtn.textContent = '查看最终结果';
+        }
+        nextRoundBtn.classList.remove('hidden');
+    }
+    
+    function updatePlayerDisplays() {
+        players.forEach(p => {
+            const card = playersSection.querySelector(`#bid-player-${p.id}`).closest('.player-card');
+            if (card) {
+                card.querySelector('p:nth-of-type(1)').innerHTML = `<strong>总收益:</strong> ${p.totalPayoff.toFixed(2)}`;
+            }
+        });
+    }
+
+    function endGame() {
+        gameSection.classList.add('hidden');
+        finalResultSection.classList.remove('hidden');
+        trueValueSpan.textContent = `${trueValue_V.toFixed(2)} (游戏结束)`;
+
+        players.sort((a, b) => b.totalPayoff - a.totalPayoff);
+
+        let summary = '<h3>最终排名:</h3><ol>';
+        players.forEach(p => {
+            summary += `<li>${p.name}: ${p.totalPayoff.toFixed(2)}</li>`;
+        });
+        summary += '</ol>';
+        finalSummary.innerHTML = summary;
+        
+        log('游戏结束。');
+    }
 });
