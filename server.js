@@ -184,30 +184,41 @@ function processBids() {
     game.roundBids.sort((a, b) => b.bid - a.bid);
 
     const highestBid = game.roundBids[0].bid;
-    const secondHighestBid = game.roundBids.length > 1 ? game.roundBids[1].bid : 0;
     const topBidders = game.roundBids.filter(b => b.bid === highestBid);
 
     let winner;
     if (topBidders.length > 1) {
+        // Tie for the highest bid, pick a random winner from the top bidders
         const winnerIndex = Math.floor(Math.random() * topBidders.length);
         const winnerId = topBidders[winnerIndex].playerId;
         winner = game.players.find(p => p.id === winnerId);
     } else {
+        // Single highest bidder
         const winnerId = topBidders[0].playerId;
         winner = game.players.find(p => p.id === winnerId);
     }
     
-    const payment = secondHighestBid;
+    let payment;
+    let resultMessage = `All bids are in. True Value (V) was ${game.trueValue_V.toFixed(2)}.<br>`;
+    resultMessage += `Bids (sorted): ${game.roundBids.map(b => b.bid.toFixed(2)).join(', ')}.<br>`;
+
+    if (topBidders.length > 1) {
+        // Rule for ties: winner pays their own (highest) bid
+        payment = highestBid;
+        resultMessage += `Tie for highest bid at ${highestBid.toFixed(2)}! Randomly selected winner.<br>`;
+        resultMessage += `<strong>${winner.name} wins the round!</strong> They pay their own bid price: ${payment.toFixed(2)}.<br>`;
+    } else {
+        // Standard 2nd price rule: winner pays the second highest bid
+        const secondHighestBid = game.roundBids.length > 1 ? game.roundBids[1].bid : 0;
+        payment = secondHighestBid;
+        resultMessage += `<strong>${winner.name} wins the round!</strong> They pay the second-highest price: ${payment.toFixed(2)}.<br>`;
+    }
+    
     const winnerPayoff = game.trueValue_V - payment;
     winner.totalPayoff += winnerPayoff;
     
     game.roundWinnerInfo = { winner, payment, winnerPayoff };
 
-    let resultMessage = `All bids are in. Highest bid: ${highestBid.toFixed(2)}, Second highest: ${secondHighestBid.toFixed(2)}.<br>`;
-    if (topBidders.length > 1) {
-        resultMessage += `Tie for highest bid! Randomly selected winner.<br>`;
-    }
-    resultMessage += `<strong>${winner.name} wins the round!</strong> They pay ${payment.toFixed(2)}.<br>`;
     resultMessage += `Winner's payoff for this round: ${game.trueValue_V.toFixed(2)} (V) - ${payment.toFixed(2)} (p) = ${winnerPayoff.toFixed(2)}.`;
     
     logAndBroadcast(`Round ${game.currentRound} ended. Winner: ${winner.name}.`);
@@ -216,7 +227,10 @@ function processBids() {
         type: 'roundResult',
         result: {
             message: resultMessage,
-            updatedPayoffs: getSanitizedPlayers().map(p => ({ name: p.name, totalPayoff: p.totalPayoff }))
+            trueValue: game.trueValue_V,
+            bids: game.roundBids,
+            winnerId: winner.id,
+            updatedPayoffs: getSanitizedPlayers().map(p => ({ id: p.id, name: p.name, totalPayoff: p.totalPayoff }))
         }
     });
     
