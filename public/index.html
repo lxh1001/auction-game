@@ -1,0 +1,95 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>公共价值拍卖博弈</title>
+    <link rel="stylesheet" href="style.css">
+</head>
+<body>
+    <div id="app">
+        <header>
+            <h1>公共价值拍卖博弈</h1>
+            <div id="room-info" class="hidden">
+                <span>房间号: <strong id="room-id-display"></strong></span> |
+                <span>轮次: <strong id="round-display"></strong></span>
+            </div>
+        </header>
+
+        <main id="main-content">
+            <!-- Entry Screen -->
+            <div id="entry-screen">
+                <h2>欢迎!</h2>
+                <input type="text" id="nickname-input" placeholder="输入你的昵称" maxlength="15">
+                <div class="card">
+                    <h3>创建房间</h3>
+                    <div class="form-group">
+                        <label for="max-players-input">参与人数 (轮数将与此相同):</label>
+                        <input type="number" id="max-players-input" value="3" min="2" max="10">
+                    </div>
+                     <div class="form-group">
+                        <label for="round-time-input">每轮出价时间 (秒):</label>
+                        <input type="number" id="round-time-input" value="30" min="10" max="120">
+                    </div>
+                    <button id="create-room-btn">创建房间</button>
+                </div>
+                <div class="card">
+                    <h3>加入房间</h3>
+                    <input type="text" id="room-id-input" placeholder="输入房间号">
+                    <button id="join-room-btn">加入房间</button>
+                </div>
+            </div>
+
+            <!-- Waiting Room -->
+            <div id="waiting-room" class="hidden">
+                <h2>等待中...</h2>
+                <p>房主 (<span id="host-nickname"></span>) 将开始游戏。</p>
+                <p>玩家列表 (<span id="current-players">1</span>/<span id="max-players-display"></span>):</p>
+                <ul id="player-list"></ul>
+                <button id="start-game-btn" class="hidden">开始游戏</button>
+            </div>
+
+            <!-- Game Screen -->
+            <div id="game-screen" class="hidden">
+                <div class="game-layout">
+                    <div id="game-info-panel">
+                        <h3>游戏信息</h3>
+                        <p>你的私有信号 (sᵢ): <strong id="private-signal">-</strong></p>
+                        <p>你的累计收益: <strong id="my-score">0.00</strong></p>
+                        <p>时间剩余: <strong id="timer">--</strong></p>
+                        <div id="bid-section">
+                            <input type="number" id="bid-input" placeholder="输入你的出价 [0, 190]" min="0" max="190" step="0.01">
+                            <button id="submit-bid-btn">提交出价</button>
+                        </div>
+                         <p id="bid-status"></p>
+                    </div>
+                    <div id="players-panel">
+                        <h3>玩家状态</h3>
+                        <ul id="game-player-list"></ul>
+                    </div>
+                </div>
+            </div>
+            
+            <!-- Result Screen -->
+            <div id="result-screen" class="hidden">
+                <h2 id="result-title"></h2>
+                <div id="result-details"></div>
+                <p>下一轮将在 <span id="next-round-timer">15</span> 秒后开始...</p>
+            </div>
+
+            <!-- Final Screen -->
+            <div id="final-screen" class="hidden">
+                <h2>游戏结束!</h2>
+                <h3>最终排名</h3>
+                <ol id="final-ranking"></ol>
+                <h3>游戏历史</h3>
+                <div id="game-history-table-container"></div>
+            </div>
+            
+        </main>
+    </div>
+
+    <script src="/socket.io/socket.io.js"></script>
+    <script src="client.js"></script>
+</body>
+</html>
