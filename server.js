@@ -86,10 +86,23 @@ function handleMessage(ws, data) {
 }
 
 function handleJoinGame(ws, name) {
+    // Allow joining as a player (provide a name or empty -> server assigns default)
+    // Or join as a spectator by providing an empty name. Spectators are not counted as players.
     if (game.state !== 'WAITING') {
         ws.send(JSON.stringify({ type: 'error', message: 'Game is already in progress.' }));
         return;
     }
+
+    // if name is falsy (empty string, null, undefined) -> treat as spectator
+    if (!name) {
+        ws.isSpectator = true;
+        ws.send(JSON.stringify({ type: 'assignSpectator' }));
+        logAndBroadcast('A spectator has joined.');
+        // send updated public game state (players only)
+        ws.send(JSON.stringify({ type: 'gameState', game: { ...game, players: getSanitizedPlayers() } }));
+        return;
+    }
+
     if (game.players.some(p => p.ws === ws)) {
         ws.send(JSON.stringify({ type: 'error', message: 'You have already joined.' }));
         return;
@@ -148,20 +161,23 @@ function startNextRound() {
     
     logAndBroadcast(`Starting Round ${game.currentRound} of ${game.totalRounds}.`);
 
+    // Broadcast public newRound to everyone (no private signals included)
+    broadcast({ type: 'newRound', game: { ...game, players: getSanitizedPlayers() } });
+
+    // Then send private signals individually to each player
     game.players.forEach(p => {
         const error = Math.random() * 40 - 20; // Uniform[-20, 20]
         p.signal = game.trueValue_V + error;
         p.currentBid = null;
-        
+
         const payload = {
-            type: 'newRound',
-            game: {
-                ...game,
-                players: getSanitizedPlayers()
-            },
+            type: 'privateSignal',
+            playerId: p.id,
             privateSignal: p.signal
         };
-        p.ws.send(JSON.stringify(payload));
+        if (p.ws.readyState === WebSocket.OPEN) {
+            p.ws.send(JSON.stringify(payload));
+        }
     });
 }
 

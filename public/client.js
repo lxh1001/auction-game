@@ -39,7 +39,8 @@ document.addEventListener('DOMContentLoaded', () => {
     const gameLog = document.getElementById('game-log');
 
     // Game State
-    let localPlayer = { id: null, name: null, isHost: false };
+    let localPlayer = { id: null, name: null, isHost: false, isSpectator: false };
+    let privateSignalForRound = null; // local player's private signal for current round
 
     // WebSocket Handlers
     ws.onopen = () => {
@@ -59,6 +60,13 @@ document.addEventListener('DOMContentLoaded', () => {
                 break;
             case 'assignPlayer':
                 localPlayer = { ...localPlayer, ...data.player };
+                // joined as player
+                localPlayer.isSpectator = false;
+                joinForm.classList.add('hidden');
+                lobby.classList.remove('hidden');
+                break;
+            case 'assignSpectator':
+                localPlayer.isSpectator = true;
                 joinForm.classList.add('hidden');
                 lobby.classList.remove('hidden');
                 break;
@@ -68,7 +76,20 @@ document.addEventListener('DOMContentLoaded', () => {
                 updateGameInfo(data.game);
                 break;
             case 'newRound':
-                handleNewRound(data.game, data.privateSignal);
+                // public new round info (no private signals)
+                privateSignalForRound = null;
+                handleNewRound(data.game);
+                break;
+            case 'privateSignal':
+                // private signal for this client (only for players)
+                if (data.playerId === localPlayer.id) {
+                    privateSignalForRound = data.privateSignal;
+                    // update UI if already rendered
+                    const signalP = document.querySelector('.player-card p.private-signal');
+                    if (signalP) {
+                        signalP.innerHTML = `<strong>本轮私有信号 (s<sub>${localPlayer.id}</sub>):</strong> ${privateSignalForRound.toFixed(2)}`;
+                    }
+                }
                 break;
             case 'roundResult':
                 handleRoundResult(data.result);
@@ -78,6 +99,9 @@ document.addEventListener('DOMContentLoaded', () => {
                 break;
             case 'resaleResult':
                 handleResaleResult(data.result);
+                break;
+            case 'showNextRoundButton':
+                nextRoundBtn.classList.remove('hidden');
                 break;
             case 'gameOver':
                 handleGameOver(data.game);
@@ -99,11 +123,8 @@ document.addEventListener('DOMContentLoaded', () => {
     // Event Listeners
     joinGameBtn.addEventListener('click', () => {
         const name = playerNameInput.value.trim();
-        if (name) {
-            ws.send(JSON.stringify({ type: 'joinGame', name }));
-        } else {
-            alert('请输入你的名字。');
-        }
+        // If name left blank, server treats as spectator
+        ws.send(JSON.stringify({ type: 'joinGame', name: name || null }));
     });
 
     startGameBtn.addEventListener('click', () => {
@@ -123,6 +144,8 @@ document.addEventListener('DOMContentLoaded', () => {
         }
         ws.send(JSON.stringify({ type: 'submitBid', bid: bidValue }));
         submitBidsBtn.disabled = true;
+        // disable the input as well
+        bidInput.disabled = true;
         log('您已提交出价，请等待其他玩家...');
     });
     
@@ -157,7 +180,6 @@ document.addEventListener('DOMContentLoaded', () => {
             li.textContent = p.name + (p.isHost ? ' (房主)' : '');
             playerList.appendChild(li);
         });
-
         if (localPlayer.isHost) {
             startGameBtn.disabled = players.length < 2 || players.length > 12;
         }
@@ -169,7 +191,7 @@ document.addEventListener('DOMContentLoaded', () => {
         trueValueSpan.textContent = game.state === 'FINISHED' ? game.trueValue_V.toFixed(2) : '?';
     }
 
-    function handleNewRound(game, privateSignal) {
+    function handleNewRound(game) {
         updateGameInfo(game);
         playersSection.innerHTML = '';
         game.players.forEach(p => {
@@ -177,10 +199,11 @@ document.addEventListener('DOMContentLoaded', () => {
             card.className = 'player-card';
             let signalInfo = '';
             if (p.id === localPlayer.id) {
-                signalInfo = `<p><strong>本轮私有信号 (s<sub>${p.id}</sub>):</strong> ${privateSignal.toFixed(2)}</p>
+                const signalText = privateSignalForRound !== null ? privateSignalForRound.toFixed(2) : '???';
+                signalInfo = `<p class="private-signal"><strong>本轮私有信号 (s<sub>${p.id}</sub>):</strong> ${signalText}</p>
                               <input type="number" id="bid-player-${p.id}" class="bid-input" placeholder="输入你的出价 (0-190)" min="0" max="190">`;
             } else {
-                signalInfo = `<p><strong>本轮私有信号 (s<sub>${p.id}</sub>):</strong> ???</p>`;
+                signalInfo = `<p class="private-signal"><strong>本轮私有信号 (s<sub>${p.id}</sub>):</strong> ???</p>`;
             }
             card.innerHTML = `
                 <h3>${p.name}</h3>
