@@ -69,6 +69,7 @@ document.addEventListener('DOMContentLoaded', () => {
                 localPlayer.isSpectator = true;
                 joinForm.classList.add('hidden');
                 lobby.classList.remove('hidden');
+                log('You are a spectator.');
                 break;
             case 'gameStart':
                 setupSection.classList.add('hidden');
@@ -85,7 +86,7 @@ document.addEventListener('DOMContentLoaded', () => {
                 if (data.playerId === localPlayer.id) {
                     privateSignalForRound = data.privateSignal;
                     // update UI if already rendered
-                    const signalP = document.querySelector('.player-card p.private-signal');
+                    const signalP = document.querySelector(`.player-card[data-player-id='${localPlayer.id}'] .private-signal`);
                     if (signalP) {
                         signalP.innerHTML = `<strong>本轮私有信号 (s<sub>${localPlayer.id}</sub>):</strong> ${privateSignalForRound.toFixed(2)}`;
                     }
@@ -101,7 +102,9 @@ document.addEventListener('DOMContentLoaded', () => {
                 handleResaleResult(data.result);
                 break;
             case 'showNextRoundButton':
-                nextRoundBtn.classList.remove('hidden');
+                if (!localPlayer.isSpectator) {
+                    nextRoundBtn.classList.remove('hidden');
+                }
                 break;
             case 'gameOver':
                 handleGameOver(data.game);
@@ -132,6 +135,7 @@ document.addEventListener('DOMContentLoaded', () => {
     });
 
     submitBidsBtn.addEventListener('click', () => {
+        if (localPlayer.isSpectator) return;
         const bidInput = document.getElementById(`bid-player-${localPlayer.id}`);
         if (!bidInput) {
             alert("错误：找不到您的出价输入框。");
@@ -151,6 +155,8 @@ document.addEventListener('DOMContentLoaded', () => {
     
     nextRoundBtn.addEventListener('click', () => {
         ws.send(JSON.stringify({ type: 'requestNextRound' }));
+        nextRoundBtn.classList.add('hidden');
+        log('您已准备好下一轮。');
     });
 
     // UI Update Functions
@@ -169,7 +175,7 @@ document.addEventListener('DOMContentLoaded', () => {
             setupSection.classList.add('hidden');
             gameSection.classList.remove('hidden');
             updateGameInfo(game);
-            // More logic needed here to fully reconstruct the state for the rejoining player
+            handleNewRound(game); // Attempt to render current state
         }
     }
 
@@ -194,12 +200,20 @@ document.addEventListener('DOMContentLoaded', () => {
     function handleNewRound(game) {
         updateGameInfo(game);
         playersSection.innerHTML = '';
+        
+        if (localPlayer.isSpectator) {
+            const spectatorView = document.createElement('div');
+            spectatorView.innerHTML = '<p>您是观众，正在观看本轮拍卖。</p>';
+            playersSection.appendChild(spectatorView);
+        }
+
         game.players.forEach(p => {
             const card = document.createElement('div');
             card.className = 'player-card';
+            card.dataset.playerId = p.id;
             let signalInfo = '';
             if (p.id === localPlayer.id) {
-                const signalText = privateSignalForRound !== null ? privateSignalForRound.toFixed(2) : '???';
+                const signalText = privateSignalForRound !== null ? privateSignalForRound.toFixed(2) : '等待信号...';
                 signalInfo = `<p class="private-signal"><strong>本轮私有信号 (s<sub>${p.id}</sub>):</strong> ${signalText}</p>
                               <input type="number" id="bid-player-${p.id}" class="bid-input" placeholder="输入你的出价 (0-190)" min="0" max="190">`;
             } else {
@@ -213,8 +227,13 @@ document.addEventListener('DOMContentLoaded', () => {
             playersSection.appendChild(card);
         });
 
-        submitBidsBtn.classList.remove('hidden');
-        submitBidsBtn.disabled = false;
+        if (!localPlayer.isSpectator) {
+            submitBidsBtn.classList.remove('hidden');
+            submitBidsBtn.disabled = false;
+        } else {
+            submitBidsBtn.classList.add('hidden');
+        }
+        
         roundResultSection.classList.add('hidden');
         resaleSection.classList.add('hidden');
         resaleBiddingSection.classList.add('hidden');
@@ -229,7 +248,7 @@ document.addEventListener('DOMContentLoaded', () => {
         
         // Update total payoffs displayed on cards
         result.updatedPayoffs.forEach(p => {
-            const card = Array.from(playersSection.children).find(c => c.querySelector('h3').textContent === p.name);
+            const card = document.querySelector(`.player-card[data-player-id='${p.id}']`);
             if (card) {
                 card.querySelector('p:nth-of-type(1)').innerHTML = `<strong>总收益:</strong> ${p.totalPayoff.toFixed(2)}`;
             }
@@ -248,10 +267,11 @@ document.addEventListener('DOMContentLoaded', () => {
     function handleGameOver(game) {
         gameSection.classList.add('hidden');
         finalResultSection.classList.remove('hidden');
-        trueValueSpan.textContent = `${game.trueValue_V.toFixed(2)} (上一轮的价值)`;
+        
+        const finalPayoffs = game.players.sort((a, b) => b.totalPayoff - a.totalPayoff);
 
         let summary = '<h3>最终排名:</h3><ol>';
-        game.players.sort((a, b) => b.totalPayoff - a.totalPayoff).forEach(p => {
+        finalPayoffs.forEach(p => {
             summary += `<li>${p.name}: ${p.totalPayoff.toFixed(2)}</li>`;
         });
         summary += '</ol>';

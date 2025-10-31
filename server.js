@@ -161,8 +161,9 @@ function startNextRound() {
     
     logAndBroadcast(`Starting Round ${game.currentRound} of ${game.totalRounds}.`);
 
-    // Broadcast public newRound to everyone (no private signals included)
-    broadcast({ type: 'newRound', game: { ...game, players: getSanitizedPlayers() } });
+    // Broadcast public newRound to everyone (no private signals or true value included)
+    const { trueValue_V: _, ...publicGameData } = game;
+    broadcast({ type: 'newRound', game: { ...publicGameData, players: getSanitizedPlayers() } });
 
     // Then send private signals individually to each player
     game.players.forEach(p => {
