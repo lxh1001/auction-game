@@ -23,33 +23,22 @@ document.addEventListener('DOMContentLoaded', () => {
     const resultText = document.getElementById('result-text');
     const nextRoundBtn = document.getElementById('next-round-btn');
 
-    const resaleSection = document.getElementById('resale-section');
-    const resaleWinnerName = document.querySelector('.resale-winner-name');
-    const resaleYesBtn = document.getElementById('resale-yes-btn');
-    const resaleNoBtn = document.getElementById('resale-no-btn');
-
-    const resaleBiddingSection = document.getElementById('resale-bidding-section');
-    const resalePlayersSection = document.getElementById('resale-players-section');
-    const submitResaleBidsBtn = document.getElementById('submit-resale-bids-btn');
-    const resaleResultSection = document.getElementById('resale-result');
-    const resaleResultText = document.getElementById('resale-result-text');
-
     const finalResultSection = document.getElementById('final-result');
     const finalSummary = document.getElementById('final-summary');
     const gameLog = document.getElementById('game-log');
 
     // Game State
     let localPlayer = { id: null, name: null, isHost: false, isSpectator: false };
-    let privateSignalForRound = null; // local player's private signal for current round
+    let privateSignalForRound = null;
 
     // WebSocket Handlers
     ws.onopen = () => {
-        console.log('Connected to the server.');
+        console.log('已连接到服务器。');
     };
 
     ws.onmessage = (event) => {
         const data = JSON.parse(event.data);
-        console.log('Received from server:', data);
+        console.log('从服务器收到:', data);
 
         switch (data.type) {
             case 'gameState':
@@ -59,9 +48,7 @@ document.addEventListener('DOMContentLoaded', () => {
                 updateLobby(data.players);
                 break;
             case 'assignPlayer':
-                localPlayer = { ...localPlayer, ...data.player };
-                // joined as player
-                localPlayer.isSpectator = false;
+                localPlayer = { ...localPlayer, ...data.player, isSpectator: false };
                 joinForm.classList.add('hidden');
                 lobby.classList.remove('hidden');
                 break;
@@ -69,7 +56,7 @@ document.addEventListener('DOMContentLoaded', () => {
                 localPlayer.isSpectator = true;
                 joinForm.classList.add('hidden');
                 lobby.classList.remove('hidden');
-                log('You are a spectator.');
+                log('您是观众。');
                 break;
             case 'gameStart':
                 setupSection.classList.add('hidden');
@@ -77,15 +64,12 @@ document.addEventListener('DOMContentLoaded', () => {
                 updateGameInfo(data.game);
                 break;
             case 'newRound':
-                // public new round info (no private signals)
                 privateSignalForRound = null;
                 handleNewRound(data.game);
                 break;
             case 'privateSignal':
-                // private signal for this client (only for players)
                 if (data.playerId === localPlayer.id) {
                     privateSignalForRound = data.privateSignal;
-                    // update UI if already rendered
                     const signalP = document.querySelector(`.player-card[data-player-id='${localPlayer.id}'] .private-signal`);
                     if (signalP) {
                         signalP.innerHTML = `<strong>本轮私有信号 (s<sub>${localPlayer.id}</sub>):</strong> ${privateSignalForRound.toFixed(2)}`;
@@ -94,12 +78,6 @@ document.addEventListener('DOMContentLoaded', () => {
                 break;
             case 'roundResult':
                 handleRoundResult(data.result);
-                break;
-            case 'resalePhase':
-                handleResalePhase(data.winnerName);
-                break;
-            case 'resaleResult':
-                handleResaleResult(data.result);
                 break;
             case 'showNextRoundButton':
                 if (!localPlayer.isSpectator) {
@@ -113,20 +91,19 @@ document.addEventListener('DOMContentLoaded', () => {
                 log(data.message);
                 break;
             case 'error':
-                alert(`Error: ${data.message}`);
+                alert(`错误: ${data.message}`);
                 break;
         }
     };
 
     ws.onclose = () => {
-        console.log('Disconnected from the server.');
+        console.log('与服务器断开连接。');
         alert('与服务器断开连接。请刷新页面重试。');
     };
 
     // Event Listeners
     joinGameBtn.addEventListener('click', () => {
         const name = playerNameInput.value.trim();
-        // If name left blank, server treats as spectator
         ws.send(JSON.stringify({ type: 'joinGame', name: name || null }));
     });
 
@@ -148,7 +125,6 @@ document.addEventListener('DOMContentLoaded', () => {
         }
         ws.send(JSON.stringify({ type: 'submitBid', bid: bidValue }));
         submitBidsBtn.disabled = true;
-        // disable the input as well
         bidInput.disabled = true;
         log('您已提交出价，请等待其他玩家...');
     });
@@ -162,7 +138,7 @@ document.addEventListener('DOMContentLoaded', () => {
     // UI Update Functions
     function log(message) {
         const p = document.createElement('p');
-        p.innerHTML = message; // Server now includes round info
+        p.innerHTML = message;
         gameLog.appendChild(p);
         gameLog.scrollTop = gameLog.scrollHeight;
     }
@@ -171,11 +147,10 @@ document.addEventListener('DOMContentLoaded', () => {
         if (game.state === 'WAITING') {
             updateLobby(game.players);
         } else {
-            // Reconnect to a game in progress (simplified)
             setupSection.classList.add('hidden');
             gameSection.classList.remove('hidden');
             updateGameInfo(game);
-            handleNewRound(game); // Attempt to render current state
+            handleNewRound(game);
         }
     }
 
@@ -194,7 +169,7 @@ document.addEventListener('DOMContentLoaded', () => {
     function updateGameInfo(game) {
         currentRoundSpan.textContent = game.currentRound;
         totalRoundsSpan.textContent = game.totalRounds;
-        trueValueSpan.textContent = game.state === 'FINISHED' ? game.trueValue_V.toFixed(2) : '?';
+        trueValueSpan.textContent = game.state === 'ROUND_OVER' || game.state === 'FINISHED' ? game.trueValue_V.toFixed(2) : '?';
     }
 
     function handleNewRound(game) {
@@ -235,33 +210,21 @@ document.addEventListener('DOMContentLoaded', () => {
         }
         
         roundResultSection.classList.add('hidden');
-        resaleSection.classList.add('hidden');
-        resaleBiddingSection.classList.add('hidden');
-        resaleResultSection.classList.add('hidden');
         nextRoundBtn.classList.add('hidden');
     }
     
     function handleRoundResult(result) {
+        trueValueSpan.textContent = result.trueValue.toFixed(2);
         resultText.innerHTML = result.message;
         roundResultSection.classList.remove('hidden');
         submitBidsBtn.classList.add('hidden');
         
-        // Update total payoffs displayed on cards
         result.updatedPayoffs.forEach(p => {
             const card = document.querySelector(`.player-card[data-player-id='${p.id}']`);
             if (card) {
                 card.querySelector('p:nth-of-type(1)').innerHTML = `<strong>总收益:</strong> ${p.totalPayoff.toFixed(2)}`;
             }
         });
-
-        // The server will send a 'resalePhase' or 'showNextRoundButton' message next
-    }
-
-    function handleResalePhase(winnerName) {
-        resaleWinnerName.textContent = winnerName;
-        resaleSection.classList.remove('hidden');
-        // Logic to show/hide buttons based on whether this client is the winner
-        // This needs the server to tell the client if they won
     }
 
     function handleGameOver(game) {
