@@ -7,9 +7,6 @@ const app = express();
 const server = http.createServer(app);
 const wss = new WebSocket.Server({ server });
 
-// 【修改处】启用反向代理信任
-app.set('trust proxy', true);
-
 // Serve static files from the 'public' directory
 app.use(express.static(path.join(__dirname, 'public')));
 
