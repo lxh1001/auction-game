@@ -1,7 +1,7 @@
 document.addEventListener('DOMContentLoaded', () => {
-    const protocol = window.location.protocol === 'https' ? 'wss' : 'ws';
-    const ws = new WebSocket(`${protocol}://${window.location.host}`);
-
+    // 固定使用 wss（线上 HTTPS 域名可直接使用；本地需自备证书或走反向代理）
+    const ws = new WebSocket(`wss://${window.location.host}`);
+    
     // DOM Elements
     const setupSection = document.getElementById('setup-section');
     const gameSection = document.getElementById('game-section');
